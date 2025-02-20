@@ -1,6 +1,7 @@
 {
   "short_name": "Poker Balance",
   "name": "Poker Balance Tracker",
+  "description": "Track Poker Game Balances in Real-Time",
   "icons": [
     {
       "src": "chips.png",
@@ -13,7 +14,8 @@
       "type": "image/png"
     }
   ],
-  "start_url": "/index.html",
+  "start_url": "/pokerBalance/",
+  "scope": "/pokerBalance/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#007bff"
