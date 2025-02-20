@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Poker Balance Tracker</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f0f8ff;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      color: #ff5733; /* More vibrant color */
+      font-size: 2rem;
+      margin-bottom: 30px;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+    .table-container {
+      width: 100%;
+      overflow-x: auto;
+      margin-bottom: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+      min-width: 600px; /* Ensure the table has a minimum width */
+    }
+    th, td {
+      padding: 8px; /* Reduced padding for compactness */
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    th {
+      background-color: #ff5733;
+      color: white;
+    }
+    tr:hover {
+      background-color: #f1f1f1;
+    }
+    .transaction-form {
+      margin-top: 20px;
+      background-color: #e8f1f4; /* Soft background */
+      padding: 15px;
+      border-radius: 8px;
+    }
+    .transaction-form input, .transaction-form select {
+      padding: 8px;
+      margin-right: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+    }
+    .transaction-form button {
+      padding: 10px 20px;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .transaction-form button:hover {
+      background-color: #218838;
+    }
+    .transaction-history-text {
+      background-color: #f9f9f9;
+      padding: 10px;
+      border-radius: 5px;
+      border: 1px solid #ddd;
+      font-family: monospace; /* You can keep this or remove it, if preferred */
+      margin-top: 20px;
+      overflow-x: auto; /* Allows horizontal scrolling */
+      white-space: pre-wrap; /* Preserve line breaks */
+    }
+    /* Styles for the transaction history entries */
+    .transaction-entry {
+      display: flex;
+      justify-content: flex-start; /* Align everything to the left */
+      font-family: monospace; /* Use monospace font for consistent spacing */
+      margin-bottom: 5px; /* Add small margin for better readability */
+    }
+
+    .transaction-entry span {
+      padding: 0 4px; /* Provide equal space between each element */
+    }
+
+    .transaction-entry .transaction-id {
+      width: 6%; /* Control width of the transaction ID */
+      text-align: left;
+    }
+
+    .transaction-entry .player {
+      width: 20%; /* Control width for player names */
+      text-align: left;
+    }
+
+    .transaction-entry .amount {
+      width: 10%; /* Control width for amount */
+      text-align: right;
+    }
+
+    .transaction-entry .time {
+      width: 20%; /* Control width for time */
+      text-align: left;
+    }
+
+    .transaction-entry .date {
+      width: 25%; /* Control width for date */
+      text-align: left;
+    }
+
+    .role-display {
+      text-align: center;
+      font-size: 1.2rem;
+      color: #333;
+      margin-bottom: 20px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1 id="pageTitle">Poker Balance Tracker</h1>
+  <!-- Centered Role Display -->
+  <div class="role-display" id="roleDisplay">
+    Loading...
+  </div>
+
+  <div class="container">
+    <h2>Player Balances</h2>
+    <div class="table-container">
+      <table id="balanceTable">
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>Initial Balance</th>
+            <th>Current Balance</th>
+            <!-- Additional columns for transactions will be added here dynamically -->
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Transaction Form (Only for Admin) -->
+    <div id="transactionForm" class="transaction-form" style="display: none;">
+      <h2>Submit Transaction</h2>
+      <select id="fromPlayer">
+        <!-- Options will be populated dynamically -->
+      </select>
+      <select id="toPlayer">
+        <!-- Options will be populated dynamically -->
+      </select>
+      <input type="number" id="amount" value="6" min="1">
+      <button id="submitTransaction">Submit</button>
+    </div>
+
+    <h2>Transaction History</h2>
+    <div class="transaction-history-text" id="transactionHistoryText"></div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { db, doc, onSnapshot, updateDoc, arrayUnion, getDoc } from "./firebaseConfig.js";
+
+    // Get Game ID from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const gameId = urlParams.get("gameId");
+    const isAdmin = urlParams.get("admin") === "true"; // Check if user is admin
+
+    // Global variable to store game data
+    let gameData;
+
+    // DOM Elements
+    const pageTitle = document.getElementById("pageTitle");
+    const transactionForm = document.getElementById("transactionForm");
+    const fromPlayerSelect = document.getElementById("fromPlayer");
+    const toPlayerSelect = document.getElementById("toPlayer");
+    const transactionHistoryText = document.getElementById("transactionHistoryText");
+    const userRoleSpan = document.getElementById("userRole"); // New element for user role
+    const roleDisplay = document.getElementById("roleDisplay"); // Role display div
+
+    // Set page title based on user role
+    pageTitle.textContent = "Poker Balance Tracker"; // Keep this unchanged
+
+    // Set Real-Time Role Display
+    roleDisplay.textContent = isAdmin ? "Admin View" : "Player View"; // Display the role at the end of "Real-Time:"
+
+    // Show transaction form only for admin
+    if (isAdmin) {
+      transactionForm.style.display = "block";
+    }
+
+    // Load Game Data
+    onSnapshot(doc(db, "games", gameId), (doc) => {
+      gameData = doc.data(); // Store game data in the global variable
+      if (gameData) {
+        // Update Balance Table
+        updateBalanceTable(gameData);
+
+        // Update Transaction History as Text
+        updateTransactionHistoryText(gameData);
+
+        // Populate From and To dropdowns with players (only for admin)
+        if (isAdmin) {
+          populatePlayerDropdowns(gameData.players);
+        }
+      }
+    });
+
+    // Function to update the balance table
+    function updateBalanceTable(gameData) {
+      const balanceTableBody = document.querySelector("#balanceTable tbody");
+      const balanceTableHead = document.querySelector("#balanceTable thead tr");
+
+      // Clear existing rows and columns
+      balanceTableBody.innerHTML = "";
+      balanceTableHead.innerHTML = "<th>Player</th><th>Initial Balance</th><th>Current Balance</th>";
+
+      // Add columns for each transaction
+      gameData.transactions.forEach((transaction) => {
+        balanceTableHead.innerHTML += `<th>T ${transaction.transactionId}</th>`;
+      });
+
+      // Add rows for each player
+      gameData.players.forEach((player) => {
+        const row = document.createElement("tr");
+        const initialBalance = formatBalance(player.balance);
+        let currentBalance = player.balance;
+
+        // Calculate current balance after all transactions
+        gameData.transactions.forEach((transaction) => {
+          if (transaction.fromPlayer === player.name) {
+            currentBalance += transaction.amount;
+          }
+          if (transaction.toPlayer === player.name) {
+            currentBalance -= transaction.amount;
+          }
+        });
+
+        row.innerHTML = `
+          <td>${player.name}</td>
+          <td>${initialBalance}</td>
+          <td>${formatBalance(currentBalance)}</td>
+        `;
+
+        // Add balance after each transaction
+        let runningBalance = player.balance;
+        gameData.transactions.forEach((transaction) => {
+          if (transaction.fromPlayer === player.name) {
+            runningBalance += transaction.amount;
+          }
+          if (transaction.toPlayer === player.name) {
+            runningBalance -= transaction.amount;
+          }
+          row.innerHTML += `<td>${formatBalance(runningBalance)}</td>`;
+        });
+
+        balanceTableBody.appendChild(row);
+      });
+    }
+
+    // Function to format balance (remove .00 if applicable)
+    function formatBalance(amount) {
+      return amount % 1 === 0 ? amount.toString() : amount.toFixed(2);
+    }
+
+    // Function to update the transaction history as text
+    function updateTransactionHistoryText(gameData) {
+      const transactions = gameData.transactions
+        .slice()
+        .reverse()
+        .map(
+          (transaction) =>
+            `T${transaction.transactionId.toString().padEnd(3, ' ')}: ${transaction.fromPlayer.padEnd(13)} → ${transaction.toPlayer.padEnd(13)} (${formatBalance(transaction.amount)}) - ${new Date(transaction.timestamp).toLocaleTimeString()}, ${new Date(transaction.timestamp).toLocaleDateString()}`
+        )
+        .join("\n");
+
+      transactionHistoryText.textContent = transactions;
+    }
+
+    // Function to populate From and To dropdowns with players
+    function populatePlayerDropdowns(players) {
+      fromPlayerSelect.innerHTML = players
+        .map((player) => `<option value="${player.name}">${player.name}</option>`)
+        .join("");
+      toPlayerSelect.innerHTML = players
+        .map((player) => `<option value="${player.name}">${player.name}</option>`)
+        .join("");
+    }
+
+    // Submit Transaction (only for admin)
+    if (isAdmin) {
+      document.getElementById("submitTransaction").addEventListener("click", async () => {
+        const fromPlayer = fromPlayerSelect.value;
+        const toPlayer = toPlayerSelect.value;
+        const amount = parseFloat(document.getElementById("amount").value);
+
+        if (fromPlayer === toPlayer) {
+          alert("From Player and To Player cannot be the same.");
+          return;
+        }
+
+        if (!gameData) {
+          alert("Game data not loaded yet. Please try again.");
+          return;
+        }
+
+        // Create a new transaction
+        const transaction = {
+          transactionId: gameData.transactions.length + 1, // Use gameData.transactions
+          timestamp: new Date().toISOString(),
+          fromPlayer,
+          toPlayer,
+          amount: parseFloat(amount.toFixed(2)), // Round to 2 decimal points
+        };
+
+        // Update balances and add transaction
+        const gameRef = doc(db, "games", gameId);
+        await updateDoc(gameRef, {
+          transactions: arrayUnion(transaction),
+        });
+      });
+    }
+  </script>
+</body>
+</html>

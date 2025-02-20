@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Poker Balance Tracker</title>
+  <style>
+    /* Add your CSS styles here */
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background-color: #f4f4f9;
+    }
+    .header {
+      text-align: center;
+      margin: 20px 0;
+    }
+    .header h1 {
+      font-size: 2.5rem;
+      margin: 0;
+      color: #333;
+    }
+    .header p {
+      font-size: 1.2rem;
+      color: #666;
+    }
+    .main-content {
+      width: 100%;
+      max-width: 600px;
+      padding: 20px;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+    .create-game-button {
+      display: block;
+      width: 100%;
+      padding: 15px;
+      font-size: 1.2rem;
+      color: white;
+      background-color: #007bff;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .create-game-button:hover {
+      background-color: #0056b3;
+    }
+    .game-history {
+      margin-top: 20px;
+    }
+    .game-item {
+      padding: 10px;
+      border-bottom: 1px solid #ddd;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .game-item:last-child {
+      border-bottom: none;
+    }
+    .game-id {
+      font-weight: bold;
+      font-size: 1.1rem;
+    }
+    .game-status {
+      color: #666;
+      font-size: 0.9rem;
+    }
+    .join-buttons {
+      display: flex;
+      gap: 10px;
+    }
+    .join-buttons button {
+      padding: 5px 10px;
+      font-size: 0.9rem;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    .join-buttons button.join-admin {
+      background-color: #28a745;
+      color: white;
+    }
+    .join-buttons button.join-player {
+      background-color: #ffc107;
+      color: black;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Poker Balance Tracker</h1>
+    <p>Track Poker Game Balances in Real-Time</p>
+  </div>
+  <div class="main-content">
+    <button id="createGameButton" class="create-game-button">Create New Game</button>
+    
+    <div id="gameHistory" class="game-history"></div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { db, collection, doc, setDoc, getDoc, onSnapshot } from "./firebaseConfig.js";
+
+    // DOM Elements
+    const createGameButton = document.getElementById("createGameButton");
+    const gameHistory = document.getElementById("gameHistory");
+    const latestGameId = document.getElementById("latestGameId");
+
+    // Create a new game
+    createGameButton.addEventListener("click", async () => {
+      // Fetch the list of players from Firestore
+      const playersRef = doc(db, "config", "players");
+      const playersDoc = await getDoc(playersRef);
+      const players = playersDoc.exists() ? playersDoc.data().list : [];
+
+      if (players.length === 0) {
+        alert("Players list not found in the database. Please configure the players list.");
+        return;
+      }
+
+      // Get the last used Game ID from Firestore
+      const counterRef = doc(db, "counters", "gameId");
+      const counterDoc = await getDoc(counterRef);
+      let lastGameId = counterDoc.exists() ? counterDoc.data().lastGameId : 1000;
+
+      // Increment Game ID
+      const gameId = String(lastGameId + 1).padStart(4, "0"); // e.g., 1001, 1002, ...
+
+      // Update the last used Game ID in Firestore
+      await setDoc(counterRef, { lastGameId: lastGameId + 1 });
+
+      // Initialize game data
+      const dealerBalance = (players.length - 1) * 6; // Dealer gives $6 to each player
+      const gameData = {
+        dealerBalance: parseFloat(dealerBalance.toFixed(2)), // Round to 2 decimal points
+        players: players.map((player) => ({
+          name: player,
+          balance: player === "Dealer" ? parseFloat(dealerBalance.toFixed(2)) : -6, // Round to 2 decimal points
+        })),
+        transactions: [],
+      };
+
+      // Save the new game in Firestore
+      await setDoc(doc(db, "games", gameId), gameData);
+
+      // Show join options
+      const password = prompt("Enter admin password (or leave blank to join as player):");
+      window.location.href = `game.html?gameId=${gameId}${password === "admin" ? "&admin=true" : ""}`;
+    });
+
+    // Load Game History and Sort by Game ID Descending
+    onSnapshot(collection(db, "games"), (snapshot) => {
+      const games = [];
+      snapshot.forEach((doc) => {
+        const gameId = doc.id;
+        const gameData = doc.data();
+        games.push({ gameId, gameData });
+      });
+
+      // Sort games by Game ID in descending order
+      games.sort((a, b) => parseInt(b.gameId) - parseInt(a.gameId));
+
+      // Clear current game history
+      gameHistory.innerHTML = "";
+
+      // Display sorted games
+      games.forEach((game) => {
+        const gameItem = document.createElement("div");
+        gameItem.className = "game-item";
+        gameItem.innerHTML = `
+          <div class="game-id">Game ID: ${game.gameId}</div>
+          <div class="game-status">Status: ${game.gameData.transactions.length > 0 ? "Active" : "Inactive"}</div>
+          <div class="join-buttons">
+            <button class="join-admin" onclick="joinAsAdmin('${game.gameId}')">Join as Admin</button>
+            <button class="join-player" onclick="joinAsPlayer('${game.gameId}')">Join as Player</button>
+          </div>
+        `;
+        gameHistory.appendChild(gameItem);
+      });
+    });
+
+    // Join as Admin
+    window.joinAsAdmin = (gameId) => {
+      const password = prompt("Enter admin password:");
+      if (password === "admin") {
+        window.location.href = `game.html?gameId=${gameId}&admin=true`;
+      } else {
+        alert("Invalid admin password. Joining as player.");
+        window.location.href = `game.html?gameId=${gameId}`;
+      }
+    };
+
+    // Join as Player
+    window.joinAsPlayer = (gameId) => {
+      window.location.href = `game.html?gameId=${gameId}`;
+    };
+
+    // Set the latest game ID at the top
+    onSnapshot(collection(db, "games"), (snapshot) => {
+      let latestGameIdValue = null;
+      snapshot.forEach((doc) => {
+        const gameId = doc.id;
+        latestGameIdValue = gameId; // Get the last game ID from Firestore
+      });
+      if (latestGameIdValue) {
+        latestGameId.textContent = latestGameIdValue; // Display the latest game ID
+      }
+    });
+  </script>
+</body>
+</html>
