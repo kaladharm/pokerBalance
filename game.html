@@ -158,7 +158,9 @@
   
   <div class="container">
     <!-- Renamed and moved the table heading -->
-    <h2 id="balanceTableHeader">Real-Time Poker Game Balances - <span id="roleDisplay" class="role-display">Loading...</span></h2>
+    <h2 id="balanceTableHeader">
+        Real-Time Poker Game Balances - GameID: <span id="gameIdDisplay" class="game-id-display">Loading...</span> - <span id="roleDisplay" class="role-display">Loading...</span>
+    </h2>
     <div id="balanceTableText" class="balance-table-text"></div>
 
 	<!-- Transaction Form (Only for Admin) -->
@@ -221,6 +223,8 @@
     const transactionHistoryText = document.getElementById("transactionHistoryText");
     const roleDisplay = document.getElementById("roleDisplay");
     const balanceTableHeader = document.getElementById("balanceTableHeader");
+    const gameIdDisplay = document.getElementById("gameIdDisplay");
+    gameIdDisplay.textContent = gameId;
 
     // Set page title based on user role
     pageTitle.textContent = "Poker Balance Tracker";
@@ -249,69 +253,92 @@
         }
       }
     });
-    
-    function updateBalanceTable(gameData) {
-      const balanceTableText = document.getElementById("balanceTableText");
-    
-      const playerNamePadding = 11;
-      const balancePadding = 8;
-      const transactionIdPadding = 8;
-    
-      let text = "";
-    
-      // Add header
-      text += "Player".padEnd(playerNamePadding) + "Balance".padStart(balancePadding) + "T0".padStart(transactionIdPadding);
-      gameData.transactions.forEach((transaction) => {
-        text += `T${transaction.transactionId}`.padStart(transactionIdPadding);
-      });
-      text += "\n";
 
-      // Add rows for each player
-      let totalCurrentBalance = 0;
-      let totalInitialBalance = 0;
-      const transactionTotals = new Array(gameData.transactions.length).fill(0);
-    
-      gameData.players.forEach((player) => {
-        const initialBalance = parseFloat(player.balance);
-        let currentBalance = initialBalance;
-    
-        // Calculate current balance after all transactions
-        gameData.transactions.forEach((transaction, index) => {
-          if (transaction.fromPlayer === player.name) {
-            currentBalance += transaction.amount;
-            transactionTotals[index] -= transaction.amount;
-          }
-          if (transaction.toPlayer === player.name) {
-            currentBalance -= transaction.amount;
-            transactionTotals[index] += transaction.amount;
-          }
+    function updateBalanceTable(gameData) {
+        const balanceTableText = document.getElementById("balanceTableText");
+
+        const playerNamePadding = 11;
+        const balancePadding = 8;
+        const transactionIdPadding = 8;
+
+        let text = "";
+
+        // Initialize a 2D array to store balances for each player and transaction
+        const balances = [];
+        gameData.players.forEach((player, playerIndex) => {
+            balances[playerIndex] = [parseFloat(player.balance)]; // T0: Initial balance
         });
-    
-        totalCurrentBalance += currentBalance;
-        totalInitialBalance += initialBalance;
-    
-        text += `${player.name.padEnd(playerNamePadding)}${formatBalance(currentBalance).padStart(balancePadding)}${formatBalance(initialBalance).padStart(transactionIdPadding)}`;
+
+        // Update balances for each transaction
+        gameData.transactions.forEach((transaction, transactionIndex) => {
+            const fromPlayerIndex = gameData.players.findIndex((p) => p.name === transaction.fromPlayer);
+            const toPlayerIndex = gameData.players.findIndex((p) => p.name === transaction.toPlayer);
+
+            // Update balances for fromPlayer and toPlayer
+            if (fromPlayerIndex !== -1) {
+                balances[fromPlayerIndex][transactionIndex + 1] =
+                    balances[fromPlayerIndex][transactionIndex] + transaction.amount;
+            }
+            if (toPlayerIndex !== -1) {
+                balances[toPlayerIndex][transactionIndex + 1] =
+                    balances[toPlayerIndex][transactionIndex] - transaction.amount;
+            }
+
+            // For other players, carry forward the previous balance
+            gameData.players.forEach((player, playerIndex) => {
+                if (playerIndex !== fromPlayerIndex && playerIndex !== toPlayerIndex) {
+                    balances[playerIndex][transactionIndex + 1] = balances[playerIndex][transactionIndex];
+                }
+            });
+        });
+
+        // Add header
+        text += "Player".padEnd(playerNamePadding) + "Balance".padStart(balancePadding) + "T0".padStart(transactionIdPadding);
         gameData.transactions.forEach((transaction) => {
-          let runningBalance = initialBalance;
-          if (transaction.fromPlayer === player.name) {
-            runningBalance += transaction.amount;
-          }
-          if (transaction.toPlayer === player.name) {
-            runningBalance -= transaction.amount;
-          }
-          text += `${formatBalance(runningBalance).padStart(transactionIdPadding)}`;
+            text += `T${transaction.transactionId}`.padStart(transactionIdPadding);
         });
-        text += "\n";
-      });
-    
-      // Add Total Row
-      text += "Total".padEnd(playerNamePadding) + `${formatBalance(totalCurrentBalance).padStart(balancePadding)}` + `${formatBalance(totalInitialBalance).padStart(transactionIdPadding)}`;
-      gameData.transactions.forEach((transaction, index) => {
-        text += `${formatBalance(transactionTotals[index]).padStart(transactionIdPadding)}`;
-      });
-      text += "\n";
-    
-      balanceTableText.textContent = text;
+        text += "<br>";
+
+        // Add rows for each player
+        let totalCurrentBalance = 0;
+        let totalInitialBalance = 0;
+        const transactionTotals = new Array(gameData.transactions.length).fill(0);
+
+        gameData.players.forEach((player, playerIndex) => {
+            const initialBalance = balances[playerIndex][0];
+            const currentBalance = balances[playerIndex][balances[playerIndex].length - 1];
+
+            totalCurrentBalance += currentBalance;
+            totalInitialBalance += initialBalance;
+
+            text += `${player.name.padEnd(playerNamePadding)}${formatBalance(currentBalance).padStart(balancePadding)}`;
+
+            // Add balances for each transaction
+            balances[playerIndex].forEach((balance, transactionIndex) => {
+                if (transactionIndex === 0) {
+                    // T0: Never bold
+                    text += `${formatBalance(balance).padStart(transactionIdPadding)}`;
+                } else {
+                    // T1, T2, etc.: Bold if balance changed from previous transaction
+                    const previousBalance = balances[playerIndex][transactionIndex - 1];
+
+                    const formattedBalance = formatBalance(balance).padStart(transactionIdPadding);
+                    text += balance !== previousBalance
+                        ? `<b><span style="color: blue;">${formattedBalance}</span></b>` // Bold and blue
+                        : formattedBalance;
+                }
+            });
+            text += "<br>";
+        });
+
+        // Add Total Row
+        text += "Total".padEnd(playerNamePadding) + `${formatBalance(totalCurrentBalance).padStart(balancePadding)}` + `${formatBalance(totalInitialBalance).padStart(transactionIdPadding)}`;
+        gameData.transactions.forEach((transaction, index) => {
+            text += `${formatBalance(transactionTotals[index]).padStart(transactionIdPadding)}`;
+        });
+        text += "<br>";
+
+        balanceTableText.innerHTML = text;
     }
 
     // Function to format balance (remove .00 if applicable)
